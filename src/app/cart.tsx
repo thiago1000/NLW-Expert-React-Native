@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Text, View, ScrollView, Alert, Linking } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, Alert, Linking, ScrollView } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import Button from '@/components/button';
@@ -14,10 +14,74 @@ import { useNavigation } from 'expo-router';
 
 const PHONE_NUMBER = '';
 
+interface IAddress {
+  cep?: string;
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  localidade?: string;
+  uf?: string;
+}
+
 const Cart = () => {
-  const [address, setAddress] = useState('');
   const cartStore = useCartStore();
   const navigation = useNavigation();
+
+  const [address, setAddress] = useState<IAddress>({
+    cep: '',
+    logradouro: '',
+    numero: '',
+    complemento: '',
+    localidade: '',
+    bairro: '',
+    uf: ''
+  });
+
+  const [showAddressDetails, setShowAddressDetails] = useState<boolean>(false);
+
+  const getAdressFromApi = useCallback(() => {
+    if (!address.cep || !/^[0-9]{8}$/.test(address.cep)) {
+      Alert.alert(
+        'CEP inválido',
+        'Por favor, preencha o campo CEP com um valor válido.'
+      );
+      return;
+    }
+
+    fetch(`https://viacep.com.br/ws/${address.cep}/json/`)
+      .then((res) => res.json())
+      .then((data: IAddress) => {
+        if (data.cep) {
+          setAddress({
+            bairro: data.bairro,
+            localidade: data.localidade,
+            numero: data.numero,
+            complemento: data.complemento,
+            logradouro: data.logradouro,
+            uf: data.uf
+          });
+          setShowAddressDetails(true);
+        } else {
+          Alert.alert(
+            'CEP não encontrado',
+            'Por favor, verifique o CEP e tente novamente.'
+          );
+        }
+      })
+      .catch((err) => {
+        console.log('erro: ', err);
+        Alert.alert(
+          'Erro',
+          'Ocorreu um erro ao buscar o endereço. Tente novamente mais tarde.'
+        );
+      });
+  }, [address.cep]);
+
+  const handleCepInputChange = (text: string) => {
+    setShowAddressDetails(false);
+    setAddress((old) => ({ ...old, cep: text }));
+  };
 
   const total = formatCurrency(
     cartStore.products.reduce(
@@ -26,7 +90,10 @@ const Cart = () => {
     )
   );
 
-  function handleProductRemove(product: ProductCartProps) {
+  const isCepValid =
+    typeof address.cep === 'string' && /^[0-9]{8}$/.test(address.cep);
+
+  const handleProductRemove = (product: ProductCartProps) => {
     Alert.alert('Remover', `Desejar remover ${product.title} do carrinho?`, [
       {
         text: 'Cancelar'
@@ -36,20 +103,16 @@ const Cart = () => {
         onPress: () => cartStore.remove(product.id)
       }
     ]);
-  }
+  };
 
-  function handleOrder() {
-    if (address.trim().length === 0) {
-      return Alert.alert('Pedido', 'Informe os dados da entrega.');
-    }
-
+  const handleOrder = () => {
     const products = cartStore.products
       .map((product) => `\n ${product.quantity}x ${product.title}`)
       .join('');
 
     const message = `
     🍔 NOVO PEDIDO
-    \n Entregar em: ${address}
+    \n Entregar em: ${address.logradouro}, ${address.numero}, ${address.complemento},\n ${address.bairro}, ${address.localidade},
 
     ${products}
 
@@ -62,7 +125,7 @@ const Cart = () => {
 
     cartStore.clear();
     navigation.goBack();
-  }
+  };
 
   return (
     <View className="flex-1 pt-8">
@@ -95,18 +158,66 @@ const Cart = () => {
             </View>
 
             <Input
-              placeholder="Informe o endereço de entrega com rua, bairro, CEP, número e complemento..."
-              onChangeText={setAddress}
+              placeholder="Informe seu cep (somente números)"
+              onSubmitEditing={getAdressFromApi}
+              onChangeText={handleCepInputChange}
+              keyboardType="numeric"
+              maxLength={8}
               blurOnSubmit={true}
-              onSubmitEditing={handleOrder}
-              returnKeyType="next"
             />
+            {showAddressDetails && (
+              <>
+                <Input
+                  placeholder="Rua"
+                  value={address.logradouro}
+                  onChangeText={(text) =>
+                    setAddress((old) => ({ ...old, logradouro: text }))
+                  }
+                />
+                <Input
+                  placeholder="Número"
+                  value={address.numero}
+                  onChangeText={(text) =>
+                    setAddress((old) => ({ ...old, numero: text }))
+                  }
+                  keyboardType="numeric"
+                />
+                <Input
+                  placeholder="Complemento"
+                  value={address.complemento}
+                  onChangeText={(text) =>
+                    setAddress((old) => ({ ...old, complemento: text }))
+                  }
+                />
+                <Input
+                  placeholder="Bairro"
+                  value={address.bairro}
+                  onChangeText={(text) =>
+                    setAddress((old) => ({ ...old, bairro: text }))
+                  }
+                />
+                <Input
+                  placeholder="Cidade"
+                  value={address.localidade}
+                  onChangeText={(text) =>
+                    setAddress((old) => ({ ...old, localidade: text }))
+                  }
+                />
+                <Input
+                  placeholder="UF"
+                  value={address.uf}
+                  onChangeText={(text) =>
+                    setAddress((old) => ({ ...old, uf: text }))
+                  }
+                />
+              </>
+            )}
           </View>
         </ScrollView>
       </KeyboardAwareScrollView>
 
       <View className="p-5 gap-5">
-        <Button onPress={handleOrder}>
+        <Button onPress={handleOrder} disabled={!isCepValid}>
           <Button.Text>Enviar pedido</Button.Text>
           <Button.Icon>
             <Feather name="arrow-right-circle" size={20} />
